@@ -31,3 +31,7 @@ add notification when convert is over. return the result if it is succeed or fai
 # author
 
 itsusony <meng.xiangliang1985@gmail.com>
+
+# copyright
+
+FreakOut 2017-
