@@ -23,3 +23,11 @@ MYVIDEO-512k.mp4
 ```
 bitrate:1484k,912k,489k
 ```
+
+# todo
+
+add notification when convert is over. return the result if it is succeed or failed.
+
+# author
+
+itsusony <meng.xiangliang1985@gmail.com>
