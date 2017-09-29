@@ -3,10 +3,12 @@ use strict;
 use warnings;
 use Amazon::S3;
 
-use constant TMP_VIDEO_SAVEPATH => '/tmp/';
-use constant FFMPEG_BINPATH => '/usr/local/bin/';
-
-use constant CONF => '/usr/local/videoguy.conf';
+use constant {
+    CONF => '/usr/local/videoguy.conf',
+    FFMPEG_BINPATH => '/usr/local/bin/',
+    TMP_FILE => '/tmp/tmpvideo.mp4',
+    TMP_OUTPUT => '/tmp/tmpoutput.mp4',
+};
 
 # read videoguy.conf
 open my $fp_conf, CONF or die 'can\'t open videoguy.conf';
@@ -61,45 +63,54 @@ if ($buckets && length $buckets->{owner_id} &&
     for my $job (@jobs) {
         next unless $job->{filename} =~ /(.+)\.mp4$/;
         my $prefix_filename = $1;
-        if ($job->{profile} =~ /bitrate:([0-9]+k)/m) {
-            my $target_bitrate = $1;
-            my $new_filename = sprintf '%s-%s.mp4', $prefix_filename, $target_bitrate;
-            next if grep {$_ eq $new_filename} @fn_mp4;
+        if ($job->{profile} =~ /bitrate:([0-9k,]+)/m) {
+            # delete tmp file if exist
+            unlink (TMP_FILE, TMP_OUTPUT);
 
-            my $tmp_file   = TMP_VIDEO_SAVEPATH . 'tmpvideo.mp4';
-            my $tmp_output = TMP_VIDEO_SAVEPATH . 'tmpoutput.mp4';
+            my @arr_target_bitrates = split ",", $1;
+            my @converted_bitrates;
+$DB::single=1;
+            for my $target_bitrate (@arr_target_bitrates) {
+                next unless $target_bitrate =~ /^(\d+)k$/;
+                my $val_target_bitrate = $1;
 
-            my $point1_retried = 0;
-            retry_point1:
-            unless ($bucket->get_key_filename($job->{filename}, 'GET', $tmp_file)) {
-                if (++$point1_retried <= 2) {
-                    goto retry_point1;
-                } else {
-                    die 'downlaod file error:'. $job->{filename};
+                my $new_filename = sprintf '%s-%s.mp4', $prefix_filename, $target_bitrate;
+                next if grep {$_ eq $new_filename} @fn_mp4;
+
+                my $point1_retried = 0;
+                retry_point1:
+                unless ($bucket->get_key_filename($job->{filename}, 'GET', TMP_FILE)) {
+                    if (++$point1_retried <= 2) {
+                        goto retry_point1;
+                    } else {
+                        die 'downlaod file error:'. $job->{filename};
+                    }
+                }
+
+                my $video_info = get_video_info(TMP_FILE);
+                if (defined $video_info->{bitrate} && $video_info->{bitrate} <= $val_target_bitrate) {
+                    system sprintf FFMPEG_BINPATH . 'ffmpeg -y -i "%s" -vcodec %s -b:v %s -loglevel quiet "%s"', TMP_FILE, $video_info->{codec}, $target_bitrate, TMP_OUTPUT;
+
+                    # check video output
+                    if (my $new_video_info = get_video_info(TMP_OUTPUT)) {
+                        # upload video file
+                        if ($bucket->add_key_filename($new_filename, TMP_OUTPUT)) {
+                            push @converted_bitrates, $new_video_info->{bitrate};
+                        }
+                    }
+
+                    # delete tmp files
+                    unlink (TMP_FILE, TMP_OUTPUT);
                 }
             }
 
-            $target_bitrate =~ /^(\d+)k$/;
-            my $val_target_bitrate = $1;
-
-            my $video_info = get_video_info($tmp_file);
-            if (defined $video_info->{bitrate} && $video_info->{bitrate} <= $val_target_bitrate) {
-                system sprintf FFMPEG_BINPATH . 'ffmpeg -y -i "%s" -vcodec %s -b:v %s -loglevel quiet "%s"', $tmp_file, $video_info->{codec}, $target_bitrate, $tmp_output;
-
-                # check video output
-                if (my $new_video_info = get_video_info($tmp_output)) {
-                    # upload video file
-                    $bucket->add_key_filename($new_filename, $tmp_output);
-
-                    # write result file, finish it
-                    $bucket->add_key(
-                        $job->{filename} . '.result',
-                        'bitrate:'.$new_video_info->{bitrate}.'k',
-                    );
-                }
-
-                # delete tmp files
-                unlink ($tmp_file, $tmp_output);
+            if (@converted_bitrates) {
+                @converted_bitrates = map { $_ . 'k'; } @converted_bitrates;
+                # write result file, finish it
+                $bucket->add_key(
+                    $job->{filename} . '.result',
+                    'bitrate:'.(join ",", @converted_bitrates),
+                );
             }
         }
     }
