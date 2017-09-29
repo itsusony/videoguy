@@ -64,12 +64,19 @@ if ($buckets && length $buckets->{owner_id} &&
         if ($job->{profile} =~ /bitrate:([0-9]+k)/m) {
             my $target_bitrate = $1;
             my $new_filename = sprintf '%s-%s.mp4', $prefix_filename, $target_bitrate;
-            next if $bucket->head_key($new_filename);
+            next if grep {$_ eq $new_filename} @fn_mp4;
 
             my $tmp_file   = TMP_VIDEO_SAVEPATH . 'tmpvideo.mp4';
             my $tmp_output = TMP_VIDEO_SAVEPATH . 'tmpoutput.mp4';
+
+            my $point1_retried = 0;
+            retry_point1:
             unless ($bucket->get_key_filename($job->{filename}, 'GET', $tmp_file)) {
-                # download error
+                if (++$point1_retried <= 2) {
+                    goto retry_point1;
+                } else {
+                    die 'downlaod file error:'. $job->{filename};
+                }
             }
 
             $target_bitrate =~ /^(\d+)k$/;
