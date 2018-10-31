@@ -69,7 +69,6 @@ if ($buckets && length $buckets->{owner_id} &&
 
             my @arr_target_bitrates = split ",", $1;
             my @converted_bitrates;
-$DB::single=1;
             for my $target_bitrate (@arr_target_bitrates) {
                 next unless $target_bitrate =~ /^(\d+)k$/;
                 my $val_target_bitrate = $1;
