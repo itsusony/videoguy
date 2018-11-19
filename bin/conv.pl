@@ -2,6 +2,7 @@
 use strict;
 use warnings;
 use Amazon::S3;
+use Encode;
 
 use constant {
     CONF => '/usr/local/videoguy.conf',
@@ -47,6 +48,7 @@ if ($buckets && length $buckets->{owner_id} &&
     my @jobs;
 
     for my $mp4 (@fn_mp4) {
+        $mp4 = encode_utf8 $mp4 if $mp4;
         if (my $has_profile = (grep { $_ eq $mp4.'.profile' } @fn_profile) ? 1 : 0) {
             unless (my $converted = (grep { $_ eq $mp4.'.result' } @fn_profile) ? 1 : 0) {
                 if (my $profile_data_value = ($bucket->get_key($mp4.'.profile') // {})->{value}) {
